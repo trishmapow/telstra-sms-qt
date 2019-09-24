@@ -154,8 +154,8 @@ class App(QMainWindow):
             return self.set_status("Request bearer first")
 
         message = Message(msg_type=MessageType.OUTGOING, sender=self.phone_number, destination=self.num_text.text(), text=self.msg_text.text())
-        if not re.match(r"\+61[0-9]{6,9}|[0-9]{6,10}", message.destination):
-            return self.set_status("Expected national or +61 format")
+        if len(message.destination) == 0:
+            return self.set_status("Number cannot be blank")
 
         if len(message.text) == 0:
             return self.set_status("Message cannot be blank")
