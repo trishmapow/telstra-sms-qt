@@ -42,7 +42,7 @@ def get_bearer(key, secret):
 
     return requests.request("POST", url, data=body, headers=headers)
 
-def get_messages(b):
+def get_message(b):
     url = "https://tapi.telstra.com/v2/messages/sms"
 
     headers = {
