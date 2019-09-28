@@ -110,10 +110,13 @@ if __name__ == "__main__":
     parser.add_argument("secret", help="client secret")
     args = parser.parse_args()
 
-    b = get_bearer(args.key, args.secret).json()['access_token']
-    num_info = get_number(b).json()
-    number = num_info['destinationAddress']
+    try:
+        b = get_bearer(args.key, args.secret).json()['access_token']
+        num_info = get_number(b).json()
+        number = num_info['destinationAddress']
 
-    print("{} expiring in {} day(s)".format(number, num_info['activeDays']))
-    print("bearer stored in `b` variable")
+        print("{} expiring in {} day(s)".format(number, num_info['activeDays']))
+        print("bearer stored in `b` variable")
+    except:
+        print("Error requesting bearer")
     code.InteractiveConsole({**globals(), **locals()}).interact()

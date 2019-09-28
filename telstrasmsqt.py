@@ -2,6 +2,7 @@ import sys
 import re
 import configparser
 import requests
+import inspect
 from datetime import datetime
 from PyQt5 import QtCore
 from PyQt5.QtWidgets import (
@@ -101,36 +102,18 @@ class App(QMainWindow):
             self.set_status("Network problem, check connection and try again")
         except Exception as e:
             self.set_status(f"Error calling {f.__name__}, check logs")
-            print(e)
+            print(e, file=sys.stderr)
         else:
             return response
 
-    def get_message(self):
-        if self.bearer is None:
-            return self.set_status("Request bearer first")
-
-        self.set_status("Fetching messages...")        
-        while True:
-            response = self.api_request(api.get_message, self.bearer)
-            if response:
-                if response.status_code == 200:
-                    j = response.json()
-                    if j['status'] == 'EMPTY':
-                        break
-
-                    time = datetime.fromisoformat(j['sentTimestamp'])
-                    message = Message(msg_type=MessageType.INCOMING, sender=j['senderAddress'], destination=self.phone_number, 
-                                    text=j['message'], msg_id=j['messageId'], timestamp=time)
-                    self.received_messages.append(message)
-
-                    i = len(self.received_messages) - 1
-                    self.msg_table.setRowCount(i + 1)
-                    self.msg_table.setItem(i, 0, QTableWidgetItem(message.sender))
-                    self.msg_table.setItem(i, 1, QTableWidgetItem(datetime.strftime(message.timestamp, '%d/%m %H:%M:%S')))
-                    self.msg_table.setItem(i, 2, QTableWidgetItem(message.text))
-                else:
-                    self.set_status(f"Request to fetch message failed with code {response.status_code}")
-        self.set_status("Fetched all messages")
+    def check_response(self, response, success_code):
+        if response.status_code == success_code:
+            return True
+        else:
+            caller = inspect.stack()[1][3]
+            self.set_status(f"Request method {caller} failed with code {response.status_code}, check logs")
+            print(f"{caller}: {response} {response.text}", file=sys.stderr)
+            return False
 
     def choose_bearer(self):
         keys = [k for k in config['keys']]
@@ -143,11 +126,35 @@ class App(QMainWindow):
     
         key, secret = key_pair.split(" ")
         response = self.api_request(api.get_bearer, key, secret)
-        if response:
+        if self.check_response(response, 200):
             self.bearer = response.json()['access_token']
             self.set_status("Success! Token valid for one hour")
             self.phone_number = self.api_request(api.get_number, self.bearer).json()['destinationAddress']
             self.num_label.setText(f"Num: {self.phone_number}")
+
+    def get_message(self):
+        if self.bearer is None:
+            return self.set_status("Request bearer first")
+
+        self.set_status("Fetching messages...")        
+        while True:
+            response = self.api_request(api.get_message, self.bearer)
+            if self.check_response(response, 200):
+                j = response.json()
+                if j['status'] == 'EMPTY':
+                    break
+
+                time = datetime.fromisoformat(j['sentTimestamp'])
+                message = Message(msg_type=MessageType.INCOMING, sender=j['senderAddress'], destination=self.phone_number, 
+                                text=j['message'], msg_id=j['messageId'], timestamp=time)
+                self.received_messages.append(message)
+
+                i = len(self.received_messages) - 1
+                self.msg_table.setRowCount(i + 1)
+                self.msg_table.setItem(i, 0, QTableWidgetItem(message.sender))
+                self.msg_table.setItem(i, 1, QTableWidgetItem(datetime.strftime(message.timestamp, '%d/%m %H:%M:%S')))
+                self.msg_table.setItem(i, 2, QTableWidgetItem(message.text))
+        self.set_status("Fetched all messages")
     
     def send_message(self):
         if self.bearer is None:
@@ -162,13 +169,10 @@ class App(QMainWindow):
 
         self.set_status(f"Sending message to {message.destination}")
         response = self.api_request(api.send_message, self.bearer, message.destination, message.text)
-        if response:
-            if response.status_code == 201:
-                self.set_status("Request to send message successful")
-                self.num_text.setText("")
-                self.msg_text.setText("")
-            else:
-                self.set_status(f"Request to send message failed with code {response.status_code}")
+        if self.check_response(response, 201):
+            self.set_status("Request to send message successful")
+            self.num_text.setText("")
+            self.msg_text.setText("")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
