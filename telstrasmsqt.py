@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
+    QMessageBox,
 )
 from PyQt5.QtGui import QIcon
 
@@ -93,6 +94,13 @@ class App(QMainWindow):
     def set_status(self, message):
         self.statusBar().showMessage(message)
 
+    def show_message(self, title, message, icon=QMessageBox.Information):
+        dlg = QMessageBox(parent=self)
+        dlg.setWindowTitle(title)
+        dlg.setIcon(icon)
+        dlg.setText(message)
+        dlg.exec_()
+
     def api_request(self, f, *args):
         try:
             response = f(*args)
@@ -101,8 +109,7 @@ class App(QMainWindow):
         except requests.exceptions.ConnectionError:
             self.set_status("Network problem, check connection and try again")
         except Exception as e:
-            self.set_status(f"Error calling {f.__name__}, check logs")
-            print(e, file=sys.stderr)
+            self.show_message(f"Error calling {f.__name__}", e, QMessageBox.Critical)
         else:
             return response
 
@@ -129,7 +136,13 @@ class App(QMainWindow):
         if self.check_response(response, 200):
             self.bearer = response.json()['access_token']
             self.set_status("Success! Token valid for one hour")
-            self.phone_number = self.api_request(api.get_number, self.bearer).json()['destinationAddress']
+
+            phone_number = self.api_request(api.get_number, self.bearer)
+            if not phone_number:
+                self.show_message("No number", "This bearer has no number associated. Will request a new one.")
+                phone_number = self.api_request(api.new_number, self.bearer)
+            self.phone_number = phone_number.json()['destinationAddress']
+                
             self.num_label.setText(f"Num: {self.phone_number}")
 
     def get_message(self):
