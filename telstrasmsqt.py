@@ -105,16 +105,18 @@ class App(QMainWindow):
         try:
             response = f(*args, **kwargs)
         except requests.exceptions.Timeout:
-            self.show_message("Request timed out, try again", e, QMessageBox.Critical)
+            self.show_message("Request timed out", "Check connection and try again", QMessageBox.Critical)
         except requests.exceptions.ConnectionError:
-            self.show_message("Network problem, check connection and try again", e, QMessageBox.Critical)
+            self.show_message("Network problem", "Check connection and try again", QMessageBox.Critical)
         except Exception as e:
-            self.show_message(f"Error calling {f.__name__}", e, QMessageBox.Critical)
+            self.show_message(f"Error calling {f.__name__}, report bug", e, QMessageBox.Critical)
         else:
             return response
 
     def check_response(self, response, success_code):
-        if response is not None and response.status_code == success_code:
+        if response is None:
+            return False
+        elif response.status_code == success_code:
             return True
         else:
             caller = inspect.stack()[1][3]
