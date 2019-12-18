@@ -125,7 +125,13 @@ class App(QMainWindow):
             return False
 
     def choose_bearer(self):
-        keys = [k for k in config['keys']]
+        try:
+            keys = [k for k in config['keys']]
+        except KeyError:
+            self.show_message("Error reading config file", 
+                              "Check that app.conf exists in same directory and is formatted correctly", 
+                              QMessageBox.Critical)
+            return
 
         # padding 'hack' to make dialog wider
         key_pair, ok_pressed = QInputDialog.getItem(self, "Keys", "Choose keys [key secret]:" + " "*80, keys, 0, True)
