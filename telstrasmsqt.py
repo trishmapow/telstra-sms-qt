@@ -101,20 +101,20 @@ class App(QMainWindow):
         dlg.setText(message)
         dlg.exec_()
 
-    def api_request(self, f, *args):
+    def api_request(self, f, *args, **kwargs):
         try:
-            response = f(*args)
+            response = f(*args, **kwargs)
         except requests.exceptions.Timeout:
-            self.set_status("Request timed out, try again")
+            self.show_message("Request timed out, try again", e, QMessageBox.Critical)
         except requests.exceptions.ConnectionError:
-            self.set_status("Network problem, check connection and try again")
+            self.show_message("Network problem, check connection and try again", e, QMessageBox.Critical)
         except Exception as e:
             self.show_message(f"Error calling {f.__name__}", e, QMessageBox.Critical)
         else:
             return response
 
     def check_response(self, response, success_code):
-        if response.status_code == success_code:
+        if response is not None and response.status_code == success_code:
             return True
         else:
             caller = inspect.stack()[1][3]
@@ -186,6 +186,8 @@ class App(QMainWindow):
             self.set_status("Request to send message successful")
             self.num_text.setText("")
             self.msg_text.setText("")
+        else:
+            self.set_status("Request to send message failed")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
