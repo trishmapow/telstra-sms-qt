@@ -1,6 +1,7 @@
 import sys
+import os
 import re
-import configparser
+import json
 import requests
 import inspect
 from datetime import datetime
@@ -25,9 +26,6 @@ from PyQt5.QtGui import QIcon
 import api
 from message import *
 
-config = configparser.ConfigParser(allow_no_value=True)
-config.optionxform = str # case sensitive keys
-config.read('app.conf')
 
 class App(QMainWindow):
     """Main GUI for app"""
@@ -46,7 +44,40 @@ class App(QMainWindow):
         self.msg_text = QLineEdit()
         self.msg_table = QTableWidget()
 
+        self.keys = []
+        self.load_keys()
+
         self.init_ui()
+
+    @staticmethod
+    def get_path_to(filename):
+        return os.path.join(os.path.abspath(os.path.dirname(__file__)), filename)
+
+    def load_keys(self):
+        try:
+            with open(App.get_path_to("keys.json")) as f:
+                self.keys = json.load(f)
+        except FileNotFoundError:
+            self.show_message(
+                "No existing keys.json file found",
+                "Manually add keys and the program will create a new config file.",
+                QMessageBox.Warning,
+            )
+        except json.JSONDecodeError:
+            self.show_message(
+                "Error parsing keys.json",
+                "Check that the file is formatted as per the example.",
+                QMessageBox.Critical,
+            )
+
+    def save_keys(self):
+        try:
+            with open(App.get_path_to("keys.json"), "w") as f:
+                json.dump(self.keys, f, indent=4)
+        except Exception as e:
+            self.show_message(
+                "Could not write to keys.json file", e, QMessageBox.Critical
+            )
 
     def init_ui(self):
         self.setWindowTitle("Telstra SMS")
@@ -72,11 +103,13 @@ class App(QMainWindow):
 
         fetch_button = QPushButton("Receive")
         fetch_button.clicked.connect(self.get_message)
-        
-        #self.msg_table.setRowCount(10)
+
+        # self.msg_table.setRowCount(10)
         self.msg_table.setColumnCount(3)
-        self.msg_table.setHorizontalHeaderLabels(['Sender', 'Time', 'Message'])
-        self.msg_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.msg_table.setHorizontalHeaderLabels(["Sender", "Time", "Message"])
+        self.msg_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeToContents
+        )
 
         grid.addWidget(bearer_button, 0, 3)
         grid.addWidget(self.num_label, 0, 0)
@@ -105,11 +138,21 @@ class App(QMainWindow):
         try:
             response = f(*args, **kwargs)
         except requests.exceptions.Timeout:
-            self.show_message("Request timed out", "Check connection and try again", QMessageBox.Critical)
+            self.show_message(
+                "Request timed out",
+                "Check connection and try again",
+                QMessageBox.Critical,
+            )
         except requests.exceptions.ConnectionError:
-            self.show_message("Network problem", "Check connection and try again", QMessageBox.Critical)
+            self.show_message(
+                "Network problem",
+                "Check connection and try again",
+                QMessageBox.Critical,
+            )
         except Exception as e:
-            self.show_message(f"Error calling {f.__name__}, report bug", e, QMessageBox.Critical)
+            self.show_message(
+                f"Error calling {f.__name__}, report bug", e, QMessageBox.Critical
+            )
         else:
             return response
 
@@ -120,68 +163,107 @@ class App(QMainWindow):
             return True
         else:
             caller = inspect.stack()[1][3]
-            self.set_status(f"Request method {caller} failed with code {response.status_code}, check logs")
+            self.set_status(
+                f"Request method {caller} failed with code {response.status_code}, check logs"
+            )
             print(f"{caller}: {response} {response.text}", file=sys.stderr)
             return False
 
     def choose_bearer(self):
-        try:
-            keys = [k for k in config['keys']]
-        except KeyError:
-            self.show_message("Error reading config file", 
-                              "Check that app.conf exists in same directory and is formatted correctly", 
-                              QMessageBox.Critical)
+        chosen, ok_pressed = QInputDialog.getItem(
+            self,
+            "Keys",
+            "Choose key (last known number and bearer shown below).\nAlternatively enter a new key pair (format: [key] [secret])",
+            [
+                f"{i}. {k.get('number') or '[unknown number]'} {k['key']}"
+                for i, k in enumerate(self.keys, start=1)
+                if ('key' in k) and ('secret' in k)
+            ],
+        )
+
+        if not (chosen and ok_pressed):
             return
 
-        # padding 'hack' to make dialog wider
-        key_pair, ok_pressed = QInputDialog.getItem(self, "Keys", "Choose keys [key secret]:" + " "*80, keys, 0, True)
+        parts = chosen.split()
+        key_index = -1
+        if (len(parts) == 2):
+            key, secret = parts
+            if len(key) != 32 or len(secret) != 16:
+                self.show_message("Invalid key", "Key must be of length 32 & secret of length 16.", QMessageBox.Critical)
+                return
+        else:
+            key_index = int(parts[0].replace('.', '')) - 1
+            key, secret = self.keys[key_index]["key"], self.keys[key_index]["secret"]
 
-        if not (key_pair and ok_pressed):
-            return
-    
-        key, secret = key_pair.split(" ")
         response = self.api_request(api.get_bearer, key, secret)
         if self.check_response(response, 200):
-            self.bearer = response.json()['access_token']
+            self.bearer = response.json()["access_token"]
             self.set_status("Success! Token valid for one hour")
 
             phone_number = self.api_request(api.get_number, self.bearer)
             if not phone_number:
-                self.show_message("No number", "This bearer has no number associated. Will request a new one.")
+                self.show_message(
+                    "No number",
+                    "This bearer has no number associated. Will request a new one.",
+                )
                 phone_number = self.api_request(api.new_number, self.bearer)
-            self.phone_number = phone_number.json()['destinationAddress']
-                
+            self.phone_number = phone_number.json()["destinationAddress"]
+
+            # Save phone number and new key pair (if applicable)
+            if key_index == -1:
+                key_index = len(self.keys)
+                self.keys.append({'key': key, 'secret': secret})
+            self.keys[key_index]['number'] = self.phone_number
+            self.save_keys()
+
             self.num_label.setText(f"Num: {self.phone_number}")
 
     def get_message(self):
         if self.bearer is None:
             return self.set_status("Request bearer first")
 
-        self.set_status("Fetching messages...")        
+        self.set_status("Fetching messages...")
         while True:
             response = self.api_request(api.get_message, self.bearer)
             if self.check_response(response, 200):
                 j = response.json()
-                if j['status'] == 'EMPTY':
+                if j["status"] == "EMPTY":
                     break
 
-                time = datetime.fromisoformat(j['sentTimestamp'])
-                message = Message(msg_type=MessageType.INCOMING, sender=j['senderAddress'], destination=self.phone_number, 
-                                text=j['message'], msg_id=j['messageId'], timestamp=time)
+                time = datetime.fromisoformat(j["sentTimestamp"])
+                message = Message(
+                    msg_type=MessageType.INCOMING,
+                    sender=j["senderAddress"],
+                    destination=self.phone_number,
+                    text=j["message"],
+                    msg_id=j["messageId"],
+                    timestamp=time,
+                )
                 self.received_messages.append(message)
 
                 i = len(self.received_messages) - 1
                 self.msg_table.setRowCount(i + 1)
                 self.msg_table.setItem(i, 0, QTableWidgetItem(message.sender))
-                self.msg_table.setItem(i, 1, QTableWidgetItem(datetime.strftime(message.timestamp, '%d/%m %H:%M:%S')))
+                self.msg_table.setItem(
+                    i,
+                    1,
+                    QTableWidgetItem(
+                        datetime.strftime(message.timestamp, "%d/%m %H:%M:%S")
+                    ),
+                )
                 self.msg_table.setItem(i, 2, QTableWidgetItem(message.text))
         self.set_status("Fetched all messages")
-    
+
     def send_message(self):
         if self.bearer is None:
             return self.set_status("Request bearer first")
 
-        message = Message(msg_type=MessageType.OUTGOING, sender=self.phone_number, destination=self.num_text.text(), text=self.msg_text.text())
+        message = Message(
+            msg_type=MessageType.OUTGOING,
+            sender=self.phone_number,
+            destination=self.num_text.text(),
+            text=self.msg_text.text(),
+        )
         if len(message.destination) == 0:
             return self.set_status("Number cannot be blank")
 
@@ -189,13 +271,16 @@ class App(QMainWindow):
             return self.set_status("Message cannot be blank")
 
         self.set_status(f"Sending message to {message.destination}")
-        response = self.api_request(api.send_message, self.bearer, message.destination, message.text)
+        response = self.api_request(
+            api.send_message, self.bearer, message.destination, message.text
+        )
         if self.check_response(response, 201):
             self.set_status("Request to send message successful")
             self.num_text.setText("")
             self.msg_text.setText("")
         else:
             self.set_status("Request to send message failed")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

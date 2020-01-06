@@ -1,0 +1,11 @@
+[
+    {
+        "key": "key 1 (length 32)",
+        "secret": "secret 1 (length 16)",
+        "number": "optional, automatically filled by program"
+    },
+    {
+        "key": "key 2",
+        "secret": "secret 2",
+    }
+]
