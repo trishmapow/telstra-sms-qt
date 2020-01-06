@@ -12,7 +12,7 @@ Linux: [telstrasmsqt](dist/telstrasmsqt)
 Windows (not available): [telstrasmsqt.exe](dist/telstrasmsqt.exe)
 
 ## Dependencies
-(if not using standalone packages)
+`pip3 install -r requirements.txt`
 - PyQt5
 - requests
 
